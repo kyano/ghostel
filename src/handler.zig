@@ -95,7 +95,7 @@ pub fn GhostelHandler(Effects: type) type {
         }
 
         /// Called when the terminal needs to write response data back to the PTY.
-        fn writePtyCallback(handler: *gt.TerminalStream.Handler, data: [:0]const u8) void {
+        fn writePtyCallback(handler: *gt.TerminalStream.Handler, data: []const u8) void {
             const self: *Self = @fieldParentPtr("inner", handler);
             if (data.len == 0) return;
             self.effects.ptyWriteFromTerminal(data);

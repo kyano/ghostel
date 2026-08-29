@@ -87,6 +87,11 @@ fn emitOnePlacement(
                 placement.source_height,
             });
         },
+        // Relative placements (kitty P=/Q=) have no screen position of their own;
+        // libghostty resolves the parent chain to a root at render time. Ghostel's
+        // Elisp side supports only virtual and screen-pinned display, so skip until
+        // resolveChain-based support is needed.
+        .relative => return error.NotVisible,
     }
 }
 
@@ -106,39 +111,49 @@ const ImageData = struct {
 };
 
 fn getImageData(alloc: Allocator, image: *const gt.kitty.graphics.Image) !ImageData {
-    // libghostty decompresses images at transmit time, so by the time
-    // we read out the data here it should always be in the .none state.
-    // Refuse explicitly so a future libghostty change that defers
+    // libghostty decompresses images at transmit time, so once image
+    // bytes are complete they should be in the .none state. Refuse
+    // explicitly so a future libghostty change that defers
     // decompression doesn't silently hand us garbage bytes that Emacs
     // would try to render as PNG/PPM.
     if (image.compression != .none) return error.UnsupportedCompression;
 
-    if (image.data.len == 0 or image.width == 0 or image.height == 0) return error.EmptyImage;
+    // Ghostty image data may still be pending while bytes are streaming
+    // in. Ghostel only emits complete image bytes to Emacs; pending
+    // images are skipped for this redraw and retried once libghostty has
+    // completed the payload.
+    const data = switch (image.data) {
+        .complete => |data| data,
+        .pending => return error.ImagePending,
+    };
+
+    if (data.len == 0 or image.width == 0 or image.height == 0) return error.EmptyImage;
     // Alpha is dropped, not composited (see ppm.createPpm doc comment).
-    // PNG payloads in normal operation never reach the PNG branch here:
-    // libghostty's PNG decode hook (sys.zig) decodes them to RGBA at
-    // transmit time, so format arrives as RGBA and we go through the
-    // PPM path with channels=4.  The PNG branch stays for the case
-    // where the decode hook is uninstalled or rejected the payload.
+    // PNG payloads in normal operation usually do not reach the PNG
+    // branch here: libghostty's PNG decode hook (sys.zig) decodes them
+    // to RGBA at transmit time, so complete decoded data arrives as RGBA
+    // and we go through the PPM path with channels=4. The PNG branch
+    // stays for the case where the decode hook is uninstalled or
+    // rejected the payload.
     return switch (image.format) {
-        .png => .{ .data = image.data, .is_png = true, .allocated = false },
+        .png => .{ .data = data, .is_png = true, .allocated = false },
         .rgba => .{
-            .data = ppm.createPpm(alloc, image.data, image.width, image.height, 4) orelse return error.PpmConvert,
+            .data = ppm.createPpm(alloc, data, image.width, image.height, 4) orelse return error.PpmConvert,
             .is_png = false,
             .allocated = true,
         },
         .rgb => .{
-            .data = ppm.createPpm(alloc, image.data, image.width, image.height, 3) orelse return error.PpmConvert,
+            .data = ppm.createPpm(alloc, data, image.width, image.height, 3) orelse return error.PpmConvert,
             .is_png = false,
             .allocated = true,
         },
         .gray_alpha => .{
-            .data = ppm.createPpm(alloc, image.data, image.width, image.height, 2) orelse return error.PpmConvert,
+            .data = ppm.createPpm(alloc, data, image.width, image.height, 2) orelse return error.PpmConvert,
             .is_png = false,
             .allocated = true,
         },
         .gray => .{
-            .data = ppm.createPpm(alloc, image.data, image.width, image.height, 1) orelse return error.PpmConvert,
+            .data = ppm.createPpm(alloc, data, image.width, image.height, 1) orelse return error.PpmConvert,
             .is_png = false,
             .allocated = true,
         },
