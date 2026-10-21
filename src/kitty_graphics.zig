@@ -28,6 +28,99 @@ pub fn emitPlacements(env: emacs.Env, term: *GhostelTerm) !void {
     emitVirtualRuns(env, term, storage);
 }
 
+
+const Placement = struct {
+    pin: gt.PageList.Pin,
+    image_id: u32,
+    placement_id: u32,
+    row: u32,
+    col: u32,
+    width: u32,
+};
+
+const IncompleteRun = struct {
+    pin: gt.PageList.Pin,
+    inner: gt.kitty.graphics.unicode.IncompletePlacement,
+
+    fn init(pin: gt.PageList.Pin, cell: *const gt.Cell) IncompleteRun {
+        const style = pin.style(cell);
+        const cps = pin.grapheme(cell) orelse &.{};
+        return .{
+            .pin = pin,
+            .inner = gt.kitty.graphics.unicode.IncompletePlacement.init(&style, cps),
+        };
+    }
+
+    fn append(self: *IncompleteRun, other: *const IncompleteRun) bool {
+        return self.inner.append(&other.inner);
+    }
+
+    fn complete(self: *const IncompleteRun) Placement {
+        return .{
+            .pin = self.pin,
+            .image_id = self.inner.imageId(),
+            .placement_id = self.inner.placement_id orelse 0,
+            .row = self.inner.row orelse 0,
+            .col = self.inner.col orelse 0,
+            .width = self.inner.width,
+        };
+    }
+};
+
+const PlacementIterator = struct {
+    row_it: gt.PageList.RowIterator,
+    row: ?gt.PageList.Pin,
+
+    pub fn next(self: *PlacementIterator) ?Placement {
+        while (self.row) |*row| {
+            if (!row.rowAndCell().row.kitty_virtual_placeholder) {
+                self.row = self.row_it.next();
+                continue;
+            }
+
+            var run: ?IncompleteRun = null;
+
+            const cells = row.cells(.right);
+            for (cells, row.x..) |*cell, x| {
+                row.x = @intCast(x);
+
+                if (cell.codepoint() != gt.kitty.graphics.unicode.placeholder) {
+                    if (run) |prev| {
+                        const placement = prev.complete();
+                        return placement;
+                    }
+                    continue;
+                }
+
+                const curr = IncompleteRun.init(row.*, cell);
+                if (run) |*prev| {
+                    if (!prev.append(&curr)) {
+                        const placement = prev.complete();
+                        return placement;
+                    }
+                } else {
+                    var prev = curr;
+                    if (prev.inner.row == null) prev.inner.row = 0;
+                    if (prev.inner.col == null) prev.inner.col = 0;
+                    run = prev;
+                }
+            }
+
+            self.row = self.row_it.next();
+
+            if (run) |prev| return prev.complete();
+        }
+
+        return null;
+    }
+};
+
+fn placementIterator(top: gt.PageList.Pin, bottom: gt.PageList.Pin) PlacementIterator {
+    var row_it = top.rowIterator(.right_down, bottom);
+    const row = row_it.next();
+    return .{ .row_it = row_it, .row = row };
+}
+
 /// Emit one Elisp call per unicode placeholder run from the row this
 /// redraw's render started at down to the last active row, covering rows
 /// that left the active area since the previous redraw.
@@ -37,7 +130,7 @@ fn emitVirtualRuns(env: emacs.Env, term: *GhostelTerm, storage: *const gt.kitty.
     const top = term.renderer.rendered_from orelse return;
     const bottom = pages.getBottomRight(.active) orelse return;
     const bottom_y = (pages.pointFromPin(.screen, bottom) orelse return).screen.y;
-    var it = gt.kitty.graphics.unicode.placementIterator(top, bottom);
+    var it = placementIterator(top, bottom);
     // Image data handed to Emacs, per image id, for this redraw only.
     var images: std.AutoHashMapUnmanaged(u32, emacs.Value) = .empty;
     defer images.deinit(term.alloc);
@@ -51,7 +144,7 @@ fn emitVirtualRun(
     env: emacs.Env,
     term: *GhostelTerm,
     storage: *const gt.kitty.graphics.ImageStorage,
-    run: *const gt.kitty.graphics.unicode.Placement,
+    run: *const Placement,
     bottom_y: u32,
     images: *std.AutoHashMapUnmanaged(u32, emacs.Value),
 ) !void {
