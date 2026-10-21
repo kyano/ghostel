@@ -71,7 +71,7 @@ pub fn init(
     var stream: @TypeOf(self.stream) = .init(.{ .allocator = alloc, .handler = .init(alloc, owner, self) });
     errdefer stream.deinit();
 
-    const replica_name = try alloc.dupeZ(u8, backend.replicaName());
+    const replica_name = try alloc.dupeSentinel(u8, backend.replicaName(), 0);
     errdefer alloc.free(replica_name);
 
     self.* = .{
@@ -200,9 +200,9 @@ pub fn pidValue(self: *Self) i64 {
 fn effectFallible(self: *Self, comptime func: []const u8, args: anytype) !void {
     try self.writeEvent("(");
     try self.writeEvent(func);
-    inline for (std.meta.fields(@TypeOf(args))) |field| {
+    inline for (@typeInfo(@TypeOf(args)).@"struct".field_names) |name| {
         try self.writeEvent(" ");
-        try self.writeEventLispValue(@field(args, field.name));
+        try self.writeEventLispValue(@field(args, name));
     }
     try self.writeEvent(")");
 }
@@ -220,7 +220,7 @@ fn writeEventLispValue(self: *Self, val: anytype) !void {
 
 fn writeEventLispNumber(self: *Self, val: anytype) !void {
     var buf: [1024]u8 = undefined;
-    const str = try std.fmt.bufPrintZ(&buf, "{}", .{val});
+    const str = try std.fmt.bufPrintSentinel(&buf, "{}", .{val}, 0);
     try self.writeEvent(str);
 }
 

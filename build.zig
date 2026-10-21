@@ -5,10 +5,10 @@ const module_version = @import("src/version.zig").version;
 var io: std.Io.Threaded = .init_single_threaded;
 
 // Keep in sync with build.zig.zon (minimum_zig_version) and the CI workflows.
-const required_zig = std.SemanticVersion{ .major = 0, .minor = 16, .patch = 0 };
+const required_zig = std.SemanticVersion{ .major = 0, .minor = 17, .patch = 0 };
 comptime {
     if (builtin.zig_version.order(required_zig) != .eq)
-        @compileError("ghostel requires exactly Zig 0.16.0, found " ++ builtin.zig_version_string);
+        @compileError("ghostel requires exactly Zig 0.17.0, found " ++ builtin.zig_version_string);
 }
 
 const vendored_emacs_module_dir = "vendor";
@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) void {
         "ghostty-optimize",
         "Optimization mode for the ghostty dependency (defaults to the main optimize option)",
     ) orelse optimize;
-    const is_release = optimize != .Debug;
+    const is_release = optimize != .debug;
     const target_os = target.result.os.tag;
     const android_libc: ?AndroidLibC = if (target.result.abi.isAndroid())
         resolveAndroidLibC(b, target.result)
