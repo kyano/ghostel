@@ -135,9 +135,9 @@ const Handler = struct {
             // there is no separate `reset_underline` tag in sgr.Attribute.
             .underline => |v| self.style.flags.underline = v,
 
-            .underline_color => |rgb| self.style.underline_color = .{ .rgb = rgb },
-            .@"256_underline_color" => |idx| self.style.underline_color = .{ .palette = idx },
-            .reset_underline_color => self.style.underline_color = .none,
+            .underline_color => |rgb| self.style.underline_color = gt.Style.Color.rgb(rgb),
+            .@"256_underline_color" => |idx| self.style.underline_color = gt.Style.Color.palette(idx),
+            .reset_underline_color => self.style.underline_color = gt.Style.Color.none,
 
             .overline => self.style.flags.overline = true,
             .reset_overline => self.style.flags.overline = false,
@@ -154,20 +154,20 @@ const Handler = struct {
             .strikethrough => self.style.flags.strikethrough = true,
             .reset_strikethrough => self.style.flags.strikethrough = false,
 
-            .direct_color_fg => |rgb| self.style.fg_color = .{ .rgb = rgb },
-            .direct_color_bg => |rgb| self.style.bg_color = .{ .rgb = rgb },
+            .direct_color_fg => |rgb| self.style.fg_color = gt.Style.Color.rgb(rgb),
+            .direct_color_bg => |rgb| self.style.bg_color = gt.Style.Color.rgb(rgb),
 
-            .@"8_fg" => |n| self.style.fg_color = .{ .palette = @intFromEnum(n) },
-            .@"8_bg" => |n| self.style.bg_color = .{ .palette = @intFromEnum(n) },
+            .@"8_fg" => |n| self.style.fg_color = gt.Style.Color.palette(@intFromEnum(n)),
+            .@"8_bg" => |n| self.style.bg_color = gt.Style.Color.palette(@intFromEnum(n)),
 
-            .reset_fg => self.style.fg_color = .none,
-            .reset_bg => self.style.bg_color = .none,
+            .reset_fg => self.style.fg_color = gt.Style.Color.none,
+            .reset_bg => self.style.bg_color = gt.Style.Color.none,
 
-            .@"8_bright_fg" => |n| self.style.fg_color = .{ .palette = @intFromEnum(n) },
-            .@"8_bright_bg" => |n| self.style.bg_color = .{ .palette = @intFromEnum(n) },
+            .@"8_bright_fg" => |n| self.style.fg_color = gt.Style.Color.palette(@intFromEnum(n)),
+            .@"8_bright_bg" => |n| self.style.bg_color = gt.Style.Color.palette(@intFromEnum(n)),
 
-            .@"256_fg" => |idx| self.style.fg_color = .{ .palette = idx },
-            .@"256_bg" => |idx| self.style.bg_color = .{ .palette = idx },
+            .@"256_fg" => |idx| self.style.fg_color = gt.Style.Color.palette(idx),
+            .@"256_bg" => |idx| self.style.bg_color = gt.Style.Color.palette(idx),
         }
     }
 
@@ -213,12 +213,13 @@ const Handler = struct {
                 log.warn("BEL passthrough failed: {s}", .{@errorName(err)});
             },
 
-            .set_attribute => {
+            .set_attributes => {
                 self.closePending() catch |err| {
                     log.warn("closePending before start_hyperlink failed: {s}", .{@errorName(err)});
                     return;
                 };
-                self.applyAttr(value);
+                var parser = value.parser();
+                while (parser.next()) |attr| self.applyAttr(attr);
             },
 
             .start_hyperlink => {
